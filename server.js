@@ -178,21 +178,27 @@ app.delete("/favorites/:novel_id", async (req, res) => {
 });
 
 // ✅ ดึง "รายการนิยายโปรด" ของผู้ใช้
-app.get("/favorites", async (req, res) => {
-  const user_id = userid;  // ค่าของ user_id จากการยืนยันตัวตน (หรือจาก session/token)
-  if (!user_id) return res.status(400).json({ error: "user_id is required" });
+app.get("/favoritess", async (req, res) => {
+    const user_id = userid;  // รับค่า user_id จาก query parameter
+    if (!user_id) return res.status(400).json({ error: "user_id is required" });
 
-  try {
-    const result = await pool.query(
-      `SELECT lastet_novel.user_id, novel.novel_id, novel.novel_name, novel.novel_type_id, novel.novel_img,novel.novel_penname FROM lastet_novel INNER JOIN novel ON lastet_novel.novel_id = novel.novel_id WHERE lastet_novel.user_id = $1`, [user_id]
-    );
+    try {
+        const result = await pool.query(
+            `SELECT lastet_novel.user_id, novel.novel_id, novel.novel_name, novel.novel_type_id, novel.novel_img, novel.novel_penname,noveltype.novel_type_name
+              FROM lastet_novel 
+              INNER JOIN novel 
+              ON lastet_novel.novel_id = novel.novel_id 
+              INNER JOIN noveltype 
+              ON noveltype.novel_type_id = novel.novel_type_id 
+              WHERE lastet_novel.user_id = $1`, [user_id]
+        );
 
-    // ส่งข้อมูลรายการโปรดกลับไปยัง Client
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
+
 
 
 // API ดึง
