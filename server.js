@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path")
 const multer = require("multer");
 const bcrypt = require("bcrypt");
+const session = require("express-session");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -62,6 +63,15 @@ app.post("/register", async (req, res) => {
 // let gloResults = null;
 // let userid = null;
 
+let userid = null;
+
+app.use(session({
+  secret: process.env.SECRET_KEY, // รหัสลับสำหรับการเข้ารหัส session
+  resave: false,             // ไม่บันทึก session หากไม่มีการเปลี่ยนแปลง
+  saveUninitialized: true,   // บันทึก session ใหม่ๆ แม้ว่ายังไม่มีข้อมูล
+  cookie: { secure: false }  // ใช้ secure: true เมื่อใช้งาน HTTPS
+}));
+
 app.post("/login", async (req, res) => {
   const { user_name, user_pass } = req.body;
   console.log("Received Data:", req.body);
@@ -74,16 +84,20 @@ app.post("/login", async (req, res) => {
     const result = await pool.query("SELECT * FROM userinfo WHERE user_name = $1", [user_name]);
 
     if (result.rows.length > 0) {
-       const user = result.rows[0];
+      const user = result.rows[0];
 
       // 🔑 เปรียบเทียบรหัสผ่านที่เข้ารหัส
       const isMatch = await bcrypt.compare(user_pass, user.user_pass); // ⬅️ ใช้ `user.user_pass`
 
       if (isMatch) {
+        // เก็บ user_id ใน session
+        
+        req.session.userId = user.user_id;
+        userid = req.session.userId;
+        console.log("User_id:", req.session.userId);
+        console.log("userid:", userid);
+        // ส่ง response กลับไปพร้อมข้อมูล
         res.status(200).json({ message: "เข้าสู่ระบบสำเร็จ!", user });
-        //gloResults = result;
-        //userid = result[0].user_id;
-        // console.log("Received Data:", userid);
       } else {
         res.status(401).json({ message: "รหัสผ่านไม่ถูกต้อง" });
       }
@@ -101,10 +115,21 @@ app.post("/login", async (req, res) => {
 
 
 
-// API ดึงข้อมูลผู้ใช้ทั้งหมด
-app.get("/novel", async (req, res) => {
+// API ดึง
+app.get("/novels", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM public.novel ORDER BY novel_id ASC ");
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+app.get("/novel", async (req, res) => {
+  const user_id = userid;
+  try {
+    const result = await pool.query("SELECT * FROM public.userinfo INNER JOIN public.novel ON userinfo.user_id = novel.user_id WHERE userinfo.user_id = $1;",[user_id]);
     res.json(result.rows);
   } catch (err) {
     console.error(err.message);
@@ -157,25 +182,33 @@ const upload = multer({ storage });
 app.use('/uploads', express.static('uploads'));
 
 // ✅ API อัปโหลด Novel
-app.post('/novel', upload.single('novel_img'), async (req, res) => {
+app.post("/novel", upload.single("novel_img"), async (req, res) => {
   console.log("Received Data:", req.body);
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded!" });
-        }
+  console.log("userid:", userid);
+  if (!userid) {
+    return res.status(401).json({ error: "กรุณาล็อกอินก่อน!" });
+  }
 
-        const { novel_name, novel_type_id, novel_penname, user_id } = req.body;
-        const novel_img = req.file.filename; // 👉 เก็บแค่ชื่อไฟล์
-
-        const sql = 'INSERT INTO novel (novel_name, novel_type_id, novel_img, novel_penname, user_id) VALUES ($1, $2, $3, $4, $5)';
-        await pool.query(sql, [novel_name, novel_type_id, novel_img, novel_penname, user_id]);
-
-        res.status(200).json({ message: "Novel added successfully!", novel_img });
-    } catch (error) {
-        console.error("Database Error:", error);
-        res.status(500).send('Server error');
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded!" });
     }
+    
+    const { novel_name, novel_type_id, novel_penname } = req.body;
+    const novel_img = req.file.filename;
+    const user_id = userid; // ✅ ดึง user_id จาก session
+
+    const sql =
+      "INSERT INTO novel (novel_name, novel_type_id, novel_img, novel_penname, user_id) VALUES ($1, $2, $3, $4, $5)";
+    await pool.query(sql, [novel_name, novel_type_id, novel_img, novel_penname, user_id]);
+
+    res.status(200).json({ message: "Novel added successfully!", novel_img });
+  } catch (error) {
+    console.error("Database Error:", error);
+    res.status(500).send("Server error");
+  }
 });
+
 
 
 // เริ่มเซิร์ฟเวอร์
