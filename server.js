@@ -215,7 +215,7 @@ app.get("/novels", async (req, res) => {
 app.get("/novel", async (req, res) => {
   const user_id = userid;
   try {
-    const result = await pool.query("SELECT * FROM public.userinfo INNER JOIN public.novel ON userinfo.user_id = novel.user_id WHERE userinfo.user_id = $1;",[user_id]);
+    const result = await pool.query("SELECT * FROM public.userinfo INNER JOIN public.novel ON userinfo.user_id = novel.user_id INNER JOIN noveltype ON noveltype.novel_type_id = novel.novel_type_id WHERE userinfo.user_id = $1;",[user_id]);
     res.json(result.rows);
   } catch (err) {
     console.error(err.message);
@@ -296,6 +296,48 @@ app.post("/novel", upload.single("novel_img"), async (req, res) => {
 });
 
 
+// API สำหรับเพิ่มข้อมูลนิยาย
+app.post("/addnovel", async (req, res) => {
+  try {
+    const { novel_id, chap_write, novel_num } = req.body;
+    console.log("Received Data:", req.body);
+    if (!novel_id || !novel_num) {
+      return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบถ้วน" });
+    }
+
+    const result = await pool.query(
+      "INSERT INTO chapter (novel_id, chap_write, chap_num) VALUES ($1, $2, $3) RETURNING *",[novel_id, chap_write, novel_num]
+    );
+
+    res.status(200).json({ message: "บันทึกข้อมูลสำเร็จ", novel: result.rows[0] });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: "เกิดข้อผิดพลาดในเซิร์ฟเวอร์" });
+  }
+});
+
+app.get("/novels/:novel_id", async (req, res) => {
+  try {
+    const { novel_id } = req.params;
+    const result = await pool.query("SELECT chap_num, chap_write FROM chapter WHERE novel_id = $1", [novel_id]);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: "เกิดข้อผิดพลาดในการโหลดข้อมูล" });
+  }
+});
+
+app.get("/novels/:novelId", async (req, res) => {
+  try {
+    const { novelId } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM chapter WHERE novel_id = $1 ORDER BY chap_num",[novelId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: "Database error" });
+  }
+});
 
 // เริ่มเซิร์ฟเวอร์
 app.listen(port, () => {
