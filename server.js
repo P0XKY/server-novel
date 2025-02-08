@@ -433,6 +433,36 @@ app.get("/novels/:novelId", async (req, res) => {
   }
 });
 
+app.get('/comment/:novelId', async (req, res) => {
+  const { novelId } = req.params;
+  
+  try {
+    const result = await pool.query('SELECT * FROM public.comment INNER JOIN userinfo ON  userinfo.user_id = comment.user_id WHERE novel_id = $1', [novelId]);
+    res.json(result.rows); // Send the list of comments as response
+  } catch (err) {
+    console.error('Error fetching comments:', err);
+    res.status(500).send('Error fetching comments');
+  }
+});
+
+// Endpoint to post a new comment
+app.post('/comment', async (req, res) => {
+  const { novel_id, com_text } = req.body;
+  const user_id = userid; // Default author name if not provided
+  console.log(req.body);
+  try {
+    const result = await pool.query(
+      'INSERT INTO comment (novel_id, com_text, user_id) VALUES ($1, $2, $3) RETURNING *',
+      [novel_id, com_text, user_id]
+    );
+    res.status(201).json(result.rows[0]); // Return the newly created comment
+  } catch (err) {
+    console.error('Error posting comment:', err);
+    res.status(500).send('Error posting comment');
+  }
+});
+
+
 // เริ่มเซิร์ฟเวอร์
 app.listen(port, () => {
   console.log(`🚀 Server is running on http://localhost:${port}`);
