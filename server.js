@@ -39,21 +39,34 @@ pool.connect((err) => {
 app.post("/register", async (req, res) => {
   const { user_name, user_pass, user_email } = req.body;
   console.log("Received Data:", req.body);
+  
+  // ตรวจสอบว่าผู้ใช้กรอกข้อมูลครบถ้วนหรือไม่
   if (!user_name || !user_pass || !user_email) {
     return res.status(400).json({ message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
   }
 
   try {
+    // ตรวจสอบว่า username หรือ email ซ้ำหรือไม่
+    const checkUserQuery = 'SELECT * FROM userinfo WHERE user_name = $1 OR user_email = $2';
+    const result = await pool.query(checkUserQuery, [user_name, user_email]);
+
+    // ถ้าพบข้อมูลที่ซ้ำกัน
+    if (result.rows.length > 0) {
+      const errorMessage = result.rows[0].user_name === user_name 
+        ? 'ชื่อผู้ใช้งานนี้มีผู้ใช้งานแล้ว' 
+        : 'อีเมลนี้มีผู้ใช้งานแล้ว';
+      return res.status(400).json({ message: errorMessage });
+    }
+
     // เข้ารหัสรหัสผ่านด้วย bcrypt
-    const saltRounds = 10; // ระดับความปลอดภัย (10 เป็นค่าที่แนะนำ)
-    const hashedPassword  = await bcrypt.hash(user_pass, saltRounds);
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(user_pass, saltRounds);
 
-    const result = await pool.query(
-      "INSERT INTO userinfo (user_name, user_pass , user_email) VALUES ($1, $2, $3) RETURNING *",
-      [user_name, hashedPassword , user_email]
-    );
+    // เพิ่มข้อมูลสมาชิกใหม่ลงในฐานข้อมูล
+    const insertQuery = "INSERT INTO userinfo (user_name, user_pass, user_email) VALUES ($1, $2, $3) RETURNING *";
+    const insertResult = await pool.query(insertQuery, [user_name, hashedPassword, user_email]);
 
-    res.status(201).json({ message: "สมัครสมาชิกสำเร็จ!", user: result.rows[0] });
+    res.status(201).json({ message: "สมัครสมาชิกสำเร็จ!", user: insertResult.rows[0] });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "เกิดข้อผิดพลาดในการสมัครสมาชิก" });
@@ -86,7 +99,7 @@ app.post("/login", async (req, res) => {
     if (result.rows.length > 0) {
       const user = result.rows[0];
 
-      // 🔑 เปรียบเทียบรหัสผ่านที่เข้ารหัส
+      //เปรียบเทียบรหัสผ่านที่เข้ารหัส
       const isMatch = await bcrypt.compare(user_pass, user.user_pass); // ⬅️ ใช้ `user.user_pass`
 
       if (isMatch) {
@@ -110,6 +123,87 @@ app.post("/login", async (req, res) => {
   }
 });
 
+//ดึวข้อมูลผู้ใช้งาน
+app.get('/user', async (req, res) => {
+  try {
+      const userId = userid;
+      console.log("get user",userId);
+      const result = await pool.query('SELECT user_name, user_email FROM userinfo WHERE user_id = $1', [userId]);
+      
+      if (result.rows.length > 0) {
+          res.json(result.rows[0]);
+      } else {
+          res.status(404).json({ error: "User not found" });
+      }
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Server error" });
+  }
+});
+
+//เปลี่ยนรหัสผ่าน
+app.post('/change-password', async (req, res) => {
+  const userId = userid;
+  const { user_pass } = req.body;
+  console.log(userId);
+  console.log(req.body);
+  if (!userId||!user_pass) {
+    return res.status(400).json({ message: 'User ID และรหัสผ่านใหม่เป็นข้อมูลที่จำเป็น' });
+  }
+
+  try {
+    // ใช้ bcrypt เข้ารหัสรหัสผ่านใหม่
+    const hashedPassword = await bcrypt.hash(user_pass, 10);
+    console.log(hashedPassword);
+    // อัปเดตรหัสผ่านในฐานข้อมูล
+    const result = await pool.query(
+      'UPDATE userinfo SET user_pass = $1 WHERE user_id = $2 ', [hashedPassword, userId]
+    );
+    console.log(result);
+    
+    if (user_pass.length > 0) {
+      res.status(200).json({ message: 'รหัสผ่านถูกเปลี่ยนเรียบร้อยแล้ว' });
+      console.log('รหัสผ่านถูกเปลี่ยนเรียบร้อยแล้ว');
+    } else {
+      res.status(404).json({ message: 'ไม่พบผู้ใช้ที่ระบุ' });
+      console.log('ไม่พบผู้ใช้ที่ระบุ');
+    }
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน' });
+    console.log('เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน');
+  }
+});
+
+// ลบบัญชีผู้ใช้
+app.post('/delete-account', async (req, res) => {
+  const  userId  = userid;
+  const { de } = req.body;
+  console.log(req.body);
+  if (!userId) {
+    return res.status(400).json({ message: 'ข้อมูล userId เป็นข้อมูลที่จำเป็น' });
+  }
+
+  try {
+    // ลบบัญชีผู้ใช้จากฐานข้อมูล
+    if(de === 1){
+      const result = await pool.query(
+      'DELETE FROM userinfo WHERE user_id = $1', [userId]
+    )
+    
+    
+
+    if (result.rowCount > 0) {
+      res.status(200).json({ message: 'บัญชีถูกลบเรียบร้อยแล้ว' });
+    } else {
+      res.status(404).json({ message: 'ไม่พบผู้ใช้ที่ระบุ' });
+    }
+    }
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบบัญชี' });
+  }
+});
 
 // ✅ ดึง "รายการนิยายโปรด" ของผู้ใช้
 app.get("/favorites/:novel_id", async (req, res) => {
